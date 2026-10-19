@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using MyUniverseUplink.Core.Abstractions;
+using MyUniverseUplink.Core.Activity;
 using MyUniverseUplink.Core.Identity;
 using MyUniverseUplink.Core.Model;
 using MyUniverseUplink.Core.Spool;
@@ -62,6 +63,7 @@ public sealed class UploadWorker
     private readonly RetryPolicy _retry;
     private readonly IClock _clock;
     private readonly Action<string>? _log;
+    private readonly IActivitySink? _activity;
     private readonly Channel<bool> _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
     {
         FullMode = BoundedChannelFullMode.DropWrite,
@@ -84,7 +86,8 @@ public sealed class UploadWorker
         UploadWorkerOptions options,
         RetryPolicy retry,
         IClock clock,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        IActivitySink? activity = null)
     {
         _spool = spool ?? throw new ArgumentNullException(nameof(spool));
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
@@ -92,6 +95,7 @@ public sealed class UploadWorker
         _retry = retry ?? throw new ArgumentNullException(nameof(retry));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _log = log;
+        _activity = activity;
 
         if (options.BatchSize < 1 || options.FlushInterval <= TimeSpan.Zero || options.DrainTimeout <= TimeSpan.Zero)
         {
@@ -107,6 +111,8 @@ public sealed class UploadWorker
     public void Enqueue(FrameRecord frame)
     {
         _spool.Enqueue(frame);
+        var label = frame.Target?.Name ?? "frame without target";
+        _activity?.Publish(ActivitySeverity.Info, "frame", $"queued {label} (pending {_spool.PendingCount})");
         _wake.Writer.TryWrite(true);
     }
 
@@ -132,12 +138,19 @@ public sealed class UploadWorker
     /// <summary>Riprende l'invio dopo un errore di autenticazione (il token e' stato corretto).</summary>
     public void Resume()
     {
+        var resumed = false;
         lock (_statusLock)
         {
             if (_state == UplinkState.AuthError)
             {
                 _state = _enabled ? UplinkState.Idle : UplinkState.Disabled;
+                resumed = true;
             }
+        }
+
+        if (resumed)
+        {
+            _activity?.Publish(ActivitySeverity.Info, "auth", "sending resumed");
         }
 
         _wake.Writer.TryWrite(true);
@@ -330,18 +343,19 @@ public sealed class UploadWorker
                     }
 
                     DeadLetterAll(batch.Frames, "HTTP 413 for a single frame");
-                    RecordError("HTTP 413 for a single frame; frame moved to dead");
+                    RecordError("HTTP 413 for a single frame; frame moved to dead", ActivitySeverity.Error);
                     SetState(UplinkState.Idle);
                     return BatchOutcome.Done;
 
                 case SendOutcome.AuthError:
-                    RecordError(classification.Reason);
+                    RecordError(classification.Reason, ActivitySeverity.Error);
                     SetState(UplinkState.AuthError);
+                    _activity?.Publish(ActivitySeverity.Error, "auth", "sending suspended: save a valid token to resume");
                     _log?.Invoke("uplink suspended: authentication rejected by server");
                     return BatchOutcome.Stop;
 
                 case SendOutcome.Permanent:
-                    RecordError(classification.Reason);
+                    RecordError(classification.Reason, ActivitySeverity.Error);
                     DeadLetterAll(batch.Frames, classification.Reason);
                     SetState(UplinkState.Idle);
                     return BatchOutcome.Done;
@@ -353,6 +367,7 @@ public sealed class UploadWorker
                     if (attempts >= _retry.MaxAttempts)
                     {
                         DeadLetterAll(batch.Frames, $"gave up after {attempts} attempts: {classification.Reason}");
+                        _activity?.Publish(ActivitySeverity.Error, "error", $"gave up after {attempts} attempts; {batch.Frames.Count} frame(s) moved to dead");
                         SetState(UplinkState.Idle);
                         return BatchOutcome.Done;
                     }
@@ -363,8 +378,10 @@ public sealed class UploadWorker
                         return BatchOutcome.Stop;
                     }
 
+                    var delay = _retry.GetDelay(attempts, classification.RetryAfter);
+                    _activity?.Publish(ActivitySeverity.Warn, "retry", $"retry in {delay.TotalSeconds:0.#} s (attempt {attempts + 1}): {classification.Reason}");
                     SetState(UplinkState.Retrying);
-                    await Task.Delay(_retry.GetDelay(attempts, classification.RetryAfter), ct).ConfigureAwait(false);
+                    await Task.Delay(delay, ct).ConfigureAwait(false);
                     break;
             }
         }
@@ -383,6 +400,7 @@ public sealed class UploadWorker
         var stored = 0;
         var duplicates = 0;
         var dead = 0;
+        var rejected = 0;
 
         foreach (var frame in batch.Frames)
         {
@@ -409,6 +427,7 @@ public sealed class UploadWorker
 
                 case FrameStatus.Rejected:
                     _spool.MoveToDead(frame.FrameId, "rejected by server: " + (result.Reason ?? "no reason given"));
+                    rejected++;
                     dead++;
                     break;
 
@@ -433,6 +452,16 @@ public sealed class UploadWorker
         }
 
         _log?.Invoke($"batch {batch.BatchId}: stored {stored}, duplicate {duplicates}, dead {dead}");
+
+        var pendingLeft = _spool.PendingCount;
+        _activity?.Publish(
+            dead > 0 ? ActivitySeverity.Warn : ActivitySeverity.Ok,
+            "batch",
+            $"sent {batch.Frames.Count} frame(s): stored {stored}, duplicate {duplicates}, rejected {rejected}, dead {dead} (pending {pendingLeft})");
+        if (pendingLeft == 0)
+        {
+            _activity?.Publish(ActivitySeverity.Ok, "queue", "queue empty");
+        }
     }
 
     private void DeadLetterAll(IEnumerable<FrameRecord> frames, string reason)
@@ -474,7 +503,7 @@ public sealed class UploadWorker
         }
     }
 
-    private void RecordError(string message)
+    private void RecordError(string message, ActivitySeverity severity = ActivitySeverity.Warn)
     {
         lock (_statusLock)
         {
@@ -483,6 +512,7 @@ public sealed class UploadWorker
         }
 
         _log?.Invoke("uplink: " + message);
+        _activity?.Publish(severity, "error", message);
     }
 
     private async Task DrainOnStopAsync()
@@ -499,11 +529,13 @@ public sealed class UploadWorker
         }
         catch (OperationCanceledException)
         {
-            _log?.Invoke($"drain timeout: {_spool.PendingCount} frame(s) kept on disk");
+            var kept = _spool.PendingCount;
+            _log?.Invoke($"drain timeout: {kept} frame(s) kept on disk");
+            _activity?.Publish(ActivitySeverity.Warn, "queue", $"stop: drain timeout, {kept} frame(s) kept on disk");
         }
         catch (Exception ex)
         {
-            RecordError("drain failed: " + ex.GetType().Name);
+            RecordError("drain failed: " + ex.GetType().Name, ActivitySeverity.Error);
         }
     }
 }
