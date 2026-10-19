@@ -32,6 +32,12 @@ public sealed class PluginPaths
 
     public string ReportFile => Path.Combine(Report, "uplink-report.html");
 
+    /// <summary>File di provisioning letto all'avvio e al cambio profilo, poi rimosso.</summary>
+    public string BootstrapFile => Path.Combine(Root, "bootstrap.json");
+
+    /// <summary>Copia senza segreti di un bootstrap che non si e' potuto applicare.</summary>
+    public string BootstrapFailedFile => Path.Combine(Root, "bootstrap.failed.json");
+
     public void EnsureCreated()
     {
         foreach (var directory in new[] { Root, Pending, Dead, Thumbs, Logs, Report })

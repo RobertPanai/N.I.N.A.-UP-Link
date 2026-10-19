@@ -23,6 +23,7 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
     private ProfileSettingsStore? _store;
     private UplinkRuntime? _runtime;
     private ImageSavedListener? _listener;
+    private BootstrapImporter? _importer;
 
     /// <summary>Istanza attiva, usata dalla pagina Opzioni. Null prima di Initialize e dopo Teardown.</summary>
     public static MyUniverseUplinkPlugin? Instance { get; private set; }
@@ -32,6 +33,9 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
     public UplinkRuntime? Runtime => _runtime;
 
     public NinaLogBridge? Log => _log;
+
+    /// <summary>Le impostazioni del profilo attivo sono cambiate (bootstrap o cambio profilo): la pagina Opzioni si ricarica.</summary>
+    public event EventHandler? SettingsChanged;
 
     [ImportingConstructor]
     public MyUniverseUplinkPlugin(IProfileService profileService, IImageSaveMediator imageSaveMediator)
@@ -50,8 +54,10 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
 
             _log = new NinaLogBridge(new FileLog(paths.Logs));
             _store = new ProfileSettingsStore(new PluginOptionsAccessor(_profileService, PluginGuid), _profileService, _log);
+            _importer = new BootstrapImporter(paths, _store, _log);
             _runtime = new UplinkRuntime(paths, _log);
             _runtime.Start();
+            RunBootstrap();
             await _runtime.ApplyAsync(_store.Load()).ConfigureAwait(false);
 
             _listener = new ImageSavedListener(_imageSaveMediator, _runtime.HandleImageSaved, _log);
@@ -103,12 +109,30 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
                 return;
             }
 
+            RunBootstrap();
             var config = store.Load();
             _ = runtime.ApplyAsync(config);
+            SettingsChanged?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
         {
             _log?.Error("profile change: could not reload settings", ex);
+        }
+    }
+
+    /// <summary>Applica bootstrap.json se presente. Non lancia: un bootstrap difettoso non blocca il plugin.</summary>
+    private void RunBootstrap()
+    {
+        try
+        {
+            if (_importer is not null && _importer.TryImport())
+            {
+                SettingsChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log?.Error("bootstrap: unexpected failure (" + ex.GetType().Name + "); plugin settings unchanged");
         }
     }
 }

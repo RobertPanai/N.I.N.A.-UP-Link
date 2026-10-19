@@ -20,6 +20,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly MyUniverseUplinkPlugin _plugin;
     private readonly DispatcherTimer _statusTimer;
+    private readonly Dispatcher _dispatcher;
     private PluginConfig _saved;
     private bool _loading;
 
@@ -47,7 +48,9 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
     public OptionsViewModel(MyUniverseUplinkPlugin plugin)
     {
         _plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
+        _dispatcher = Dispatcher.CurrentDispatcher;
         _saved = plugin.Store?.Load() ?? new PluginConfig();
+        plugin.SettingsChanged += OnSettingsChanged;
 
         _loading = true;
         LoadFrom(_saved);
@@ -292,6 +295,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _disposed = true;
+        _plugin.SettingsChanged -= OnSettingsChanged;
         _statusTimer.Stop();
     }
 
@@ -341,6 +345,39 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             ActionMessage = "Folder not opened: " + ex.GetType().Name;
+        }
+    }
+
+    /// <summary>Puo' arrivare da un altro thread (bootstrap, cambio profilo): la ricarica torna sul thread della UI.</summary>
+    private void OnSettingsChanged(object? sender, EventArgs e)
+        => _dispatcher.BeginInvoke(new Action(ReloadFromStore));
+
+    private void ReloadFromStore()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            _saved = Store.Load();
+            _loading = true;
+            try
+            {
+                LoadFrom(_saved);
+            }
+            finally
+            {
+                _loading = false;
+            }
+
+            ActionMessage = "Settings updated from the active profile.";
+        }
+        catch (Exception ex)
+        {
+            ActionMessage = "Settings not reloaded: " + ex.GetType().Name;
+            _plugin.Log?.Error("options: reload failed", ex);
         }
     }
 
