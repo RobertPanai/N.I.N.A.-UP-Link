@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Threading.Channels;
 using MyUniverseUplink.Core.Abstractions;
+using MyUniverseUplink.Core.Activity;
 using MyUniverseUplink.Core.Model;
 using MyUniverseUplink.Core.Pipeline;
 using MyUniverseUplink.Core.Report;
@@ -25,6 +27,7 @@ public sealed class UplinkRuntime : IDisposable
 
     private readonly PluginPaths _paths;
     private readonly IUplinkLog _log;
+    private readonly IActivitySink? _activity;
     private readonly HttpClient _http = new(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(10) })
     {
         Timeout = Timeout.InfiniteTimeSpan,
@@ -50,13 +53,17 @@ public sealed class UplinkRuntime : IDisposable
     private ThumbJob? _last;
     private bool _disposed;
 
-    public UplinkRuntime(PluginPaths paths, IUplinkLog log)
+    public UplinkRuntime(PluginPaths paths, IUplinkLog log, IActivitySink? activity = null)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _log = log ?? throw new ArgumentNullException(nameof(log));
+        _activity = activity;
     }
 
     public PluginPaths Paths => _paths;
+
+    /// <summary>Feed delle attivita' (null se non collegato). Usato dalla pagina Opzioni per le proprie azioni.</summary>
+    public IActivitySink? Activity => _activity;
 
     public PluginConfig Config
     {
@@ -76,6 +83,7 @@ public sealed class UplinkRuntime : IDisposable
         _spool = new FileSpoolQueue(_paths.Root);
         _thumbTask = Task.Run(ThumbLoopAsync);
         _reportTimer = new Timer(state => { _ = WriteReportAsync(); }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        _activity?.Publish(ActivitySeverity.Info, "plugin", $"plugin started (pending {_spool.PendingCount})");
     }
 
     /// <summary>Applica una configurazione: ferma il worker corrente (con drain limitato), poi ne avvia uno nuovo se la configurazione e' valida.</summary>
@@ -105,6 +113,15 @@ public sealed class UplinkRuntime : IDisposable
             if (problem is not null)
             {
                 _log.Info("uplink not sending: " + problem);
+                if (problem == "disabled")
+                {
+                    _activity?.Publish(ActivitySeverity.Info, "settings", "uplink disabled; nothing is sent");
+                }
+                else
+                {
+                    _activity?.Publish(ActivitySeverity.Warn, "settings", "uplink not sending: " + problem);
+                }
+
                 return;
             }
 
@@ -123,10 +140,12 @@ public sealed class UplinkRuntime : IDisposable
             }
 
             _log.Info($"uplink active: batch {config.BatchSize}, thumbnails {config.ThumbnailMode}");
+            _activity?.Publish(ActivitySeverity.Ok, "settings", $"uplink active: batch {config.BatchSize}, thumbnails {config.ThumbnailMode}");
         }
         catch (Exception ex)
         {
             _log.Error("could not apply uplink settings", ex);
+        _activity?.Publish(ActivitySeverity.Error, "settings", "could not apply settings: " + ex.GetType().Name);
         }
         finally
         {
@@ -144,6 +163,11 @@ public sealed class UplinkRuntime : IDisposable
             config = _config;
         }
 
+        _activity?.Publish(
+            ActivitySeverity.Info,
+            "frame",
+            "received " + DescribeFrame(args) + (config.Enabled ? string.Empty : " (uplink disabled, not sent)"));
+
         if (!config.Enabled || _spool is null)
         {
             return;
@@ -151,14 +175,19 @@ public sealed class UplinkRuntime : IDisposable
 
         var context = CreateMappingContext(config);
         var savedAt = _clock.UtcNow;
-        if (!NinaFrameMapper.TryMap(args, context, savedAt, null, out var frame, out _) || frame is null)
+        if (!NinaFrameMapper.TryMap(args, context, savedAt, null, out var frame, out var skipReason) || frame is null)
         {
+            _activity?.Publish(
+                IsAdmissionReason(skipReason) ? ActivitySeverity.Info : ActivitySeverity.Warn,
+                "frame",
+                "skipped: " + skipReason);
             return;
         }
 
         var bitmap = args.Image;
         if (bitmap is null)
         {
+            _activity?.Publish(ActivitySeverity.Info, "thumbnail", "skipped: no image data");
             EnqueueFrame(frame);
             RecordRecent(frame);
             return;
@@ -182,6 +211,7 @@ public sealed class UplinkRuntime : IDisposable
             job = job with { RenderThumbnail = true };
             if (!_thumbs.Writer.TryWrite(job))
             {
+                _activity?.Publish(ActivitySeverity.Warn, "thumbnail", "not prepared: thumbnail worker stopped; frame sent without it");
                 EnqueueFrame(frame);
                 RecordRecent(frame);
             }
@@ -189,6 +219,7 @@ public sealed class UplinkRuntime : IDisposable
             return;
         }
 
+        _activity?.Publish(ActivitySeverity.Info, "thumbnail", "skipped: mode " + config.ThumbnailMode);
         EnqueueFrame(frame);
         RecordRecent(frame);
     }
@@ -270,6 +301,25 @@ public sealed class UplinkRuntime : IDisposable
 
     /// <summary>Prova la connessione con GET health usando la configurazione passata (token incluso). Non logga il token.</summary>
     public async Task<string> TestConnectionAsync(PluginConfig config, CancellationToken cancellationToken)
+    {
+        var result = await RunTestConnectionAsync(config, cancellationToken).ConfigureAwait(false);
+        var severity = ActivitySeverity.Error;
+        if (result.StartsWith("OK", StringComparison.Ordinal))
+        {
+            severity = ActivitySeverity.Ok;
+        }
+        else if (result.StartsWith("Settings incomplete", StringComparison.Ordinal)
+            || result.StartsWith("Server error", StringComparison.Ordinal)
+            || result.StartsWith("Unexpected", StringComparison.Ordinal))
+        {
+            severity = ActivitySeverity.Warn;
+        }
+
+        _activity?.Publish(severity, "test", "test connection: " + result);
+        return result;
+    }
+
+    private async Task<string> RunTestConnectionAsync(PluginConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         var problem = Validate(config);
@@ -365,6 +415,7 @@ public sealed class UplinkRuntime : IDisposable
         _reportTimer = null;
         await WriteReportAsync().ConfigureAwait(false);
         _log.Info($"uplink stopped; pending {_spool?.PendingCount ?? 0}, dead {_spool?.DeadCount ?? 0}");
+        _activity?.Publish(ActivitySeverity.Info, "plugin", $"plugin stopped (pending {_spool?.PendingCount ?? 0}, dead {_spool?.DeadCount ?? 0})");
     }
 
     public void Dispose()
@@ -413,17 +464,24 @@ public sealed class UplinkRuntime : IDisposable
                 if (thumbnail is null)
                 {
                     _log.Warn("thumbnail above 200 KB even at minimum quality; frame sent without it");
+                    _activity?.Publish(ActivitySeverity.Warn, "thumbnail", "skipped: above 200 KB even at minimum quality; frame sent without it");
+                }
+                else
+                {
+                    _activity?.Publish(ActivitySeverity.Ok, "thumbnail", "ready: " + ThumbnailSize(thumbnail));
                 }
             }
             catch (Exception ex)
             {
                 _log.Error("thumbnail rendering failed; frame sent without it", ex);
+                _activity?.Publish(ActivitySeverity.Warn, "thumbnail", "failed (" + ex.GetType().Name + "); frame sent without it");
             }
         }
 
         if (!NinaFrameMapper.TryMap(job.Args, job.Context, job.SavedAtUtc, thumbnail, out var frame, out var reason) || frame is null)
         {
             _log.Warn("frame dropped after thumbnail step: " + reason);
+            _activity?.Publish(ActivitySeverity.Warn, "frame", "dropped after thumbnail step: " + reason);
             return;
         }
 
@@ -527,6 +585,7 @@ public sealed class UplinkRuntime : IDisposable
         else
         {
             _spool?.Enqueue(frame);
+            _activity?.Publish(ActivitySeverity.Warn, "frame", $"uplink not active: frame kept on disk (pending {_spool?.PendingCount ?? 0})");
         }
     }
 
@@ -547,6 +606,30 @@ public sealed class UplinkRuntime : IDisposable
             }
         }
     }
+
+    /// <summary>Riga sintetica del frame per il feed: tipo, target, filtro, durata, HFR. Nessun percorso.</summary>
+    private static string DescribeFrame(ImageSavedEventArgs args)
+    {
+        var meta = args.MetaData;
+        var type = Text(meta?.Image?.ImageType, "frame").ToUpperInvariant();
+        var target = Text(meta?.Target?.Name, "no target");
+        var filter = Text(args.Filter ?? meta?.FilterWheel?.Filter, "no filter");
+        var duration = meta?.Image?.ExposureTime is { } seconds && seconds > 0
+            ? seconds.ToString("0.#", CultureInfo.InvariantCulture) + " s"
+            : "? s";
+        var hfr = args.StarDetectionAnalysis?.HFR is { } value && double.IsFinite(value) && value > 0
+            ? "HFR " + value.ToString("0.00", CultureInfo.InvariantCulture)
+            : "HFR n/a";
+        return $"{type}: {target}, {filter}, {duration}, {hfr}";
+    }
+
+    private static bool IsAdmissionReason(string reason) =>
+        reason.StartsWith("image type", StringComparison.Ordinal) || reason.StartsWith("no target", StringComparison.Ordinal);
+
+    private static string ThumbnailSize(ThumbnailInfo thumbnail) =>
+        thumbnail.ByteLength is { } bytes ? (bytes / 1024.0).ToString("0.0", CultureInfo.InvariantCulture) + " KB" : "size unknown";
+
+    private static string Text(string? value, string fallback) => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
     private sealed record RecentFrame(string FrameId, string? Target, string? Filter, DateTimeOffset? CapturedAtUtc, string? ThumbnailBase64);
 

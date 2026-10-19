@@ -31,13 +31,29 @@ public partial class UplinkOptionsView : UserControl
         NotReadyText.Visibility = Visibility.Collapsed;
         _viewModel = new OptionsViewModel(plugin);
         DataContext = _viewModel;
+        _viewModel.Activity.ScrollRequested += OnActivityScrollRequested;
     }
 
     private void ReleaseViewModel()
     {
+        if (_viewModel is not null)
+        {
+            _viewModel.Activity.ScrollRequested -= OnActivityScrollRequested;
+        }
+
         _viewModel?.Dispose();
         _viewModel = null;
         DataContext = null;
+    }
+
+    /// <summary>Follow: scorre all'ultima voce del feed quando ne arrivano di nuove.</summary>
+    private void OnActivityScrollRequested(object? sender, EventArgs e)
+    {
+        var items = ActivityList.Items;
+        if (items.Count > 0)
+        {
+            ActivityList.ScrollIntoView(items[items.Count - 1]);
+        }
     }
 
     private void OnSaveToken(object sender, RoutedEventArgs e)

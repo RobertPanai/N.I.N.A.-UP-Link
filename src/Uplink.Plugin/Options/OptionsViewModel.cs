@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows.Threading;
+using MyUniverseUplink.Core.Activity;
 using MyUniverseUplink.Core.Pipeline;
 using MyUniverseUplink.Core.Settings;
 using MyUniverseUplink.Runtime;
@@ -49,6 +50,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
     {
         _plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
         _dispatcher = Dispatcher.CurrentDispatcher;
+        Activity = new ActivityViewModel(plugin.Activity ?? new ActivityFeed(), _dispatcher);
         _saved = plugin.Store?.Load() ?? new PluginConfig();
         plugin.SettingsChanged += OnSettingsChanged;
 
@@ -71,6 +73,9 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public IReadOnlyList<string> ThumbnailModes { get; } = Enum.GetNames<ThumbnailMode>();
+
+    /// <summary>Feed Activity mostrato nella sezione omonima della pagina.</summary>
+    public ActivityViewModel Activity { get; }
 
     public RelayCommand SaveCommand { get; }
 
@@ -211,6 +216,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
                 if (errors.Count > 0)
                 {
                     Validation = string.Join(" ", errors);
+                    _plugin.Activity?.Publish(ActivitySeverity.Warn, "settings", "settings not saved: " + Validation);
                     return;
                 }
             }
@@ -218,6 +224,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
             Store.SaveSettings(config);
             _saved = config;
             Validation = "Settings saved.";
+            _plugin.Activity?.Publish(ActivitySeverity.Ok, "settings", "settings saved");
             _ = Runtime.ApplyAsync(config);
         }
         catch (Exception ex)
@@ -242,6 +249,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
             Store.SaveToken(token);
             ReloadSecrets();
             ActionMessage = "Token saved (encrypted for this Windows user).";
+            _plugin.Activity?.Publish(ActivitySeverity.Ok, "settings", "token saved (encrypted)");
             _ = Runtime.ApplyAsync(_saved);
         }
         catch (Exception ex)
@@ -259,6 +267,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
             Store.SaveExtraHeaderValue(typed);
             ReloadSecrets();
             ActionMessage = string.IsNullOrWhiteSpace(typed) ? "Header value removed." : "Header value saved (encrypted).";
+            _plugin.Activity?.Publish(ActivitySeverity.Ok, "settings", string.IsNullOrWhiteSpace(typed) ? "extra header value removed" : "extra header value saved (encrypted)");
             _ = Runtime.ApplyAsync(_saved);
         }
         catch (Exception ex)
@@ -297,6 +306,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
         _disposed = true;
         _plugin.SettingsChanged -= OnSettingsChanged;
         _statusTimer.Stop();
+        Activity.Dispose();
     }
 
     /// <summary>Esegue un comando dalla UI: se il plugin e' stato fermato l'eccezione diventa un messaggio, non un crash.</summary>
@@ -319,21 +329,28 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
 
     private void SendLast()
     {
-        ActionMessage = Runtime.SendLastImage()
+        var queued = Runtime.SendLastImage();
+        ActionMessage = queued
             ? "Last image queued again (with a thumbnail when the mode allows it)."
             : "No image received in this session yet.";
+        _plugin.Activity?.Publish(
+            queued ? ActivitySeverity.Info : ActivitySeverity.Warn,
+            "action",
+            queued ? "send last image: queued again" : "send last image: no image received in this session yet");
     }
 
     private void Flush()
     {
         Runtime.WakeWorker();
         ActionMessage = "Uploader woken up. A partial batch still waits up to 20 s.";
+        _plugin.Activity?.Publish(ActivitySeverity.Info, "action", "flush now: uploader woken up");
     }
 
     private void RetryDead()
     {
         var count = Runtime.RetryDead();
         ActionMessage = count + " dead frame(s) moved back to pending.";
+        _plugin.Activity?.Publish(ActivitySeverity.Info, "action", "retry dead: " + count + " frame(s) moved back to pending");
     }
 
     private void OpenFolder()
@@ -389,6 +406,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
             Store.SaveSettings(config);
             _saved = config;
             _ = Runtime.ApplyAsync(config);
+            _plugin.Activity?.Publish(ActivitySeverity.Info, "settings", "HTML report " + (value ? "on" : "off"));
         }
         catch (Exception ex)
         {

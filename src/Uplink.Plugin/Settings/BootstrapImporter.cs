@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using MyUniverseUplink.Core.Activity;
 using MyUniverseUplink.Core.Settings;
 using MyUniverseUplink.Runtime;
 
@@ -15,12 +16,14 @@ public sealed class BootstrapImporter
     private readonly PluginPaths _paths;
     private readonly ProfileSettingsStore _store;
     private readonly IUplinkLog _log;
+    private readonly IActivitySink? _activity;
 
-    public BootstrapImporter(PluginPaths paths, ProfileSettingsStore store, IUplinkLog log)
+    public BootstrapImporter(PluginPaths paths, ProfileSettingsStore store, IUplinkLog log, IActivitySink? activity = null)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _log = log ?? throw new ArgumentNullException(nameof(log));
+        _activity = activity;
     }
 
     /// <summary>True se almeno un campo e' stato applicato al profilo attivo.</summary>
@@ -56,6 +59,7 @@ public sealed class BootstrapImporter
             if (parsed.Rejected.Count > 0)
             {
                 _log.Warn("bootstrap: invalid fields discarded: " + Names(parsed.Rejected));
+                _activity?.Publish(ActivitySeverity.Warn, "bootstrap", "invalid fields discarded: " + Names(parsed.Rejected));
             }
 
             if (parsed.Ignored.Count > 0)
@@ -77,12 +81,14 @@ public sealed class BootstrapImporter
             catch (Exception ex)
             {
                 _log.Error("bootstrap: not applied (" + ex.GetType().Name + "); copy without secrets kept as bootstrap.failed.json");
+                _activity?.Publish(ActivitySeverity.Error, "bootstrap", "not applied (" + ex.GetType().Name + "); plugin settings unchanged");
                 KeepWithoutSecrets(file, text);
                 return false;
             }
 
             Delete(file);
             _log.Info("bootstrap: applied to the active profile: " + Names(parsed.Applied));
+            _activity?.Publish(ActivitySeverity.Ok, "bootstrap", "applied to the active profile, fields: " + Names(parsed.Applied));
             return true;
         }
         catch (Exception ex)

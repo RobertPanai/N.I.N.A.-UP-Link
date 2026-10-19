@@ -110,6 +110,41 @@
                 </WrapPanel>
                 <CheckBox Content="HTML report (local debug file)" IsChecked="{Binding HtmlReport}" Margin="0,4,0,0" />
                 <TextBlock Text="{Binding ActionMessage}" TextWrapping="Wrap" Margin="0,8,0,0" />
+
+                <TextBlock Style="{StaticResource SectionHeader}" Text="Activity" />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Every action of the plugin, newest at the bottom. The same lines are written to logs\activity.log." />
+                <WrapPanel Margin="0,0,0,6">
+                    <ComboBox ItemsSource="{Binding Activity.Filters}"
+                              SelectedItem="{Binding Activity.SelectedFilter, Mode=TwoWay}"
+                              DisplayMemberPath="Label"
+                              Width="150"
+                              Margin="0,0,16,8" />
+                    <CheckBox Content="Follow" IsChecked="{Binding Activity.Follow, Mode=TwoWay}" Margin="0,4,16,8" />
+                    <Button Content="Copy" Command="{Binding Activity.CopyCommand}" />
+                    <Button Content="Clear" Command="{Binding Activity.ClearCommand}" />
+                </WrapPanel>
+                <ListBox x:Name="ActivityList"
+                         Height="280"
+                         ItemsSource="{Binding Activity.Lines}"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         Background="{DynamicResource BackgroundBrush}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         Focusable="True">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock TextWrapping="Wrap" Padding="0,1">
+                                <Run Text="{Binding Time, Mode=OneWay}" Foreground="#8A93A6" />
+                                <Run Text="{Binding Label, Mode=OneWay}" Foreground="{Binding Brush, Mode=OneWay}" FontWeight="Bold" />
+                                <Run Text="{Binding Category, Mode=OneWay}" Foreground="#8A93A6" />
+                                <Run Text="{Binding Message, Mode=OneWay}" />
+                            </TextBlock>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </StackPanel>
         </ScrollViewer>
     </Grid>

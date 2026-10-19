@@ -1,4 +1,5 @@
 using System.ComponentModel.Composition;
+using MyUniverseUplink.Core.Activity;
 using MyUniverseUplink.Runtime;
 using MyUniverseUplink.Services;
 using MyUniverseUplink.Settings;
@@ -24,6 +25,8 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
     private UplinkRuntime? _runtime;
     private ImageSavedListener? _listener;
     private BootstrapImporter? _importer;
+    private ActivityFeed? _activity;
+    private ActivityFileLog? _activityFile;
 
     /// <summary>Istanza attiva, usata dalla pagina Opzioni. Null prima di Initialize e dopo Teardown.</summary>
     public static MyUniverseUplinkPlugin? Instance { get; private set; }
@@ -33,6 +36,9 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
     public UplinkRuntime? Runtime => _runtime;
 
     public NinaLogBridge? Log => _log;
+
+    /// <summary>Feed delle attivita' mostrato nella pagina Opzioni (null prima di Initialize).</summary>
+    public ActivityFeed? Activity => _activity;
 
     /// <summary>Le impostazioni del profilo attivo sono cambiate (bootstrap o cambio profilo): la pagina Opzioni si ricarica.</summary>
     public event EventHandler? SettingsChanged;
@@ -52,23 +58,27 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
             var paths = PluginPaths.Default;
             paths.EnsureCreated();
 
+            _activity = new ActivityFeed();
+            _activityFile = new ActivityFileLog(paths.Logs, _activity);
             _log = new NinaLogBridge(new FileLog(paths.Logs));
             _store = new ProfileSettingsStore(new PluginOptionsAccessor(_profileService, PluginGuid), _profileService, _log);
-            _importer = new BootstrapImporter(paths, _store, _log);
-            _runtime = new UplinkRuntime(paths, _log);
+            _importer = new BootstrapImporter(paths, _store, _log, _activity);
+            _runtime = new UplinkRuntime(paths, _log, _activity);
             _runtime.Start();
             RunBootstrap();
             await _runtime.ApplyAsync(_store.Load()).ConfigureAwait(false);
 
-            _listener = new ImageSavedListener(_imageSaveMediator, _runtime.HandleImageSaved, _log);
+            _listener = new ImageSavedListener(_imageSaveMediator, _runtime.HandleImageSaved, _log, _activity);
             _listener.Start();
             _profileService.ProfileChanged += OnProfileChanged;
 
             _log.Info("My Universe Uplink " + PluginInfo.PluginVersion + " initialized (NINA " + PluginInfo.NinaVersion + ")");
+            _activity?.Publish(ActivitySeverity.Info, "plugin", "initialized " + PluginInfo.PluginVersion + " (NINA " + PluginInfo.NinaVersion + ")");
         }
         catch (Exception ex)
         {
             _log?.Error("Initialize failed; the plugin stays inactive", ex);
+            _activity?.Publish(ActivitySeverity.Error, "plugin", "initialize failed (" + ex.GetType().Name + "); the plugin stays inactive");
         }
     }
 
@@ -90,6 +100,7 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
         finally
         {
             _runtime?.Dispose();
+            _activityFile?.Dispose();
             if (ReferenceEquals(Instance, this))
             {
                 Instance = null;
@@ -111,6 +122,7 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
 
             RunBootstrap();
             var config = store.Load();
+            _activity?.Publish(ActivitySeverity.Info, "profile", "profile changed: " + (string.IsNullOrWhiteSpace(config.ProfileName) ? "(unnamed)" : config.ProfileName));
             _ = runtime.ApplyAsync(config);
             SettingsChanged?.Invoke(this, EventArgs.Empty);
         }
