@@ -1,5 +1,5 @@
 # wp-build: build + test completi di Uplink.Core (WP-P1/P2). Nessun push, nessuna installazione, nessuna creazione sln.
-# run: 2026-10-19T15:10:00 (WP-P1)
+# run: 2026-10-19T15:35:00 (WP-P2 build 2, analyzer warnings)
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $root
