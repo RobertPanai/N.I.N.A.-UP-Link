@@ -12,6 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NINA.Plugin" Version="$(NinaPluginPackageVersion)" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <ProjectReference Include="..\Uplink.Core\Uplink.Core.csproj" />
   </ItemGroup>
 </Project>
