@@ -13,3 +13,5 @@ Write-Output '--- plugin caricati (conteggio)'
 (Get-Content $log.FullName | Select-String 'Successfully loaded plugin').Count
 Write-Output '--- profilo attivo / errori generali recenti'
 Get-Content $log.FullName | Select-String -Pattern '\|ERROR\|' | Select-Object -First 8 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(230, $_.Line.Length)) }
+# run: 1792417237
+# run: 1792417705

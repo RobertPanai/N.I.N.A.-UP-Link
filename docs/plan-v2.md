@@ -419,3 +419,27 @@ Gli endpoint effettivi vanno letti da lì prima di usarli; non vanno inventati.
   Build/test/installazione = job (`m0-build`, `m0-install`, ...). Nessuno screenshot necessario.
 - Branch di lavoro plugin: `m0/skeleton` (da main). Sito: `feat/uplink` da main.
 - `uv` installato (MCP abbandonato: si usa l'Advanced API HTTP, `localhost:1888`).
+
+
+---
+
+## 14. Stato 19/10/2026 sera: M1–M3 fatti, collaudo M4 in gran parte superato
+
+**Fatto e verificato**
+- **Sito (`feat/uplink`, Preview):** ingest `POST /api/uplink/frames`, `GET /api/uplink/health`, fault injection solo Preview, import CSV (11.994 righe, 1.688 h), dashboard da Neon con fallback CSV, box "Ultima ripresa" e frame della notte con miniature. 125 test vitest (PGlite), build verde. Preview: stored → duplicate → 401 → 429 simulato verificati dal PC. Neon (Free, Francoforte) e Blob (`sito-uplink-thumbs`) creati e collegati; `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN` esistono in Preview **e Production** (stesso database: separare prima del go-live).
+- **Plugin (`m0/skeleton`):** Core (spool a file, retry, worker, thumbnail policy, report HTML) e parte NINA (ImageSaved, mapper, miniature, Options, impostazioni per profilo con token DPAPI, bootstrap.json). 174 test xUnit verdi. Installato e caricato da NINA 3.2 (MEF `[ImportingConstructor]` con `IProfileService` e `IImageSaveMediator` funziona).
+- **Collaudo live (NINA reale + camera simulata + Preview reale):**
+  - T3: 23 LIGHT salvati → 23 stored, 0 duplicati, 0 dead; compaiono sulla pagina in Preview con miniatura.
+  - T4: server irraggiungibile → `pending` cresce, nessun errore in NINA.
+  - T5: kill di NINA con 3 frame in coda → riavvio → replay, `stored 3`, 0 duplicati.
+  - T1: impostazioni conservate dopo il riavvio senza bootstrap.
+  - T6: token errato → `HTTP 401: token rejected` → "uplink suspended", nessun retry (0 righe di log in 60 s), 0 persi; token corretto → coda svuotata.
+  - T7 (parziale): chiusura regolare di NINA con coda piena entro pochi secondi, `uplink stopped; pending N`, nessun frame perso.
+  - T10: pagina in Preview con dati e miniature, caricamento ~2 s.
+- **Scoperte:** la camera simulata via Advanced API fallisce un `capture` su due ("Unknown error"; non dipende dal plugin: un frame su due non viene salvato). Il bootstrap (`%LOCALAPPDATA%\NINA\Plugins\MyUniverseUplink\bootstrap.json`, cancellato dopo l'uso) permette di configurare il plugin senza UI.
+
+**Non ancora fatto / da decidere**
+- T2 (impostazioni indipendenti per profilo) e T9 (tempo dell'handler < 50 ms, misura nel log) non eseguiti; T8 live (429/413/500 dal plugin) coperto solo dai test del Core perché il plugin supporta un solo header extra (già usato dal bypass).
+- Frame di prova (23 `UplinkTest` + 2 della fixture) restano nel database Neon: pulirli prima del go-live.
+- `UPLINK_ADMIN_TOKEN` (import una tantum) portato a `disabled` in Preview (effettivo dal prossimo deploy); eliminarlo dalla dashboard Vercel.
+- Go-live in produzione (dominio, database Production separato, token), merge di `feat/uplink` in `main` e packaging (v1.1) restano a Robert.

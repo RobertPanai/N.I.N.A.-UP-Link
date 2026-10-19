@@ -1,3 +1,20 @@
-# Dopo l'installazione del plugin 0.2.0: stato
-GET /application/plugins
-GET /profile/show?active=true
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
+GET /equipment/camera/capture?duration=2&save=true&waitForResult=true&omitImage=true&imageType=LIGHT&targetName=UplinkTest
