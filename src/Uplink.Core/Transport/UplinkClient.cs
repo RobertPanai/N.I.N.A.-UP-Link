@@ -6,7 +6,7 @@ using MyUniverseUplink.Core.Settings;
 
 namespace MyUniverseUplink.Core.Transport;
 
-/// <summary>Invio di batch e health check. Il token non compare mai in ToString, in log o in eccezioni.</summary>
+/// <summary>Invio di batch, dirette e health check. Il token non compare mai in ToString, in log o in eccezioni.</summary>
 public interface IUplinkTransport
 {
     Task<UplinkResponse<BatchResponse>> PostFramesAsync(FrameBatch batch, CancellationToken cancellationToken);
@@ -51,10 +51,11 @@ public sealed record UplinkResponse<T>(
     TransportFailure Failure,
     string? ErrorMessage) where T : class;
 
-public sealed class UplinkClient : IUplinkTransport
+public sealed class UplinkClient : IUplinkTransport, IStreamsTransport
 {
     public const string FramesPath = "api/uplink/frames";
     public const string HealthPath = "api/uplink/health";
+    public const string StreamsPath = "api/uplink/streams";
 
     private readonly HttpClient _http;
     private readonly UplinkClientOptions _options;
@@ -78,11 +79,25 @@ public sealed class UplinkClient : IUplinkTransport
         _baseUri = new Uri(options.BaseUrl.GetLeftPart(UriPartial.Authority) + options.BaseUrl.AbsolutePath.TrimEnd('/') + "/");
     }
 
-    public async Task<UplinkResponse<BatchResponse>> PostFramesAsync(FrameBatch batch, CancellationToken cancellationToken)
+    public Task<UplinkResponse<BatchResponse>> PostFramesAsync(FrameBatch batch, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(batch);
+        return SendAsync<BatchResponse>(HttpMethod.Post, FramesPath, GzipJsonContent(batch), cancellationToken);
+    }
 
-        var json = JsonSerializer.SerializeToUtf8Bytes(batch, UplinkJson.Options);
+    /// <summary>PUT dell'insieme delle dirette: sostituisce tutto quello che il sito ha per questo dispositivo.</summary>
+    public Task<UplinkResponse<StreamsResponse>> PutStreamsAsync(StreamsRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return SendAsync<StreamsResponse>(HttpMethod.Put, StreamsPath, GzipJsonContent(request), cancellationToken);
+    }
+
+    public Task<UplinkResponse<HealthResponse>> GetHealthAsync(CancellationToken cancellationToken)
+        => SendAsync<HealthResponse>(HttpMethod.Get, HealthPath, null, cancellationToken);
+
+    private static ByteArrayContent GzipJsonContent<T>(T value)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(value, UplinkJson.Options);
         byte[] compressed;
         using (var buffer = new MemoryStream())
         {
@@ -97,12 +112,8 @@ public sealed class UplinkClient : IUplinkTransport
         var content = new ByteArrayContent(compressed);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         content.Headers.ContentEncoding.Add("gzip");
-
-        return await SendAsync<BatchResponse>(HttpMethod.Post, FramesPath, content, cancellationToken).ConfigureAwait(false);
+        return content;
     }
-
-    public Task<UplinkResponse<HealthResponse>> GetHealthAsync(CancellationToken cancellationToken)
-        => SendAsync<HealthResponse>(HttpMethod.Get, HealthPath, null, cancellationToken);
 
     private async Task<UplinkResponse<T>> SendAsync<T>(
         HttpMethod method, string path, HttpContent? content, CancellationToken cancellationToken) where T : class

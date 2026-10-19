@@ -25,12 +25,14 @@ public sealed record BootstrapSettings
     private const string FieldThumbnailQuality = "thumbnailQuality";
     private const string FieldBatchSize = "batchSize";
     private const string FieldHtmlReport = "htmlReport";
+    private const string FieldStreamsEnabled = "streamsEnabled";
+    private const string FieldStreams = "streams";
 
     private static readonly string[] KnownFields =
     {
         FieldEnabled, FieldServerUrl, FieldDeviceId, FieldToken, FieldHeaderName, FieldHeaderValue,
         FieldRequireTarget, FieldImageTypes, FieldThumbnailMode, FieldThumbnailEdge, FieldThumbnailQuality,
-        FieldBatchSize, FieldHtmlReport,
+        FieldBatchSize, FieldHtmlReport, FieldStreamsEnabled, FieldStreams,
     };
 
     /// <summary>Campi segreti: rimossi dalla copia di sicurezza bootstrap.failed.json.</summary>
@@ -73,6 +75,12 @@ public sealed record BootstrapSettings
 
     public bool? HtmlReport { get; init; }
 
+    /// <summary>Interruttore delle dirette (streamsEnabled). Null = assente.</summary>
+    public bool? StreamsEnabled { get; init; }
+
+    /// <summary>Voci delle dirette (streams). Null = assente; lista vuota = valida e svuota le dirette.</summary>
+    public IReadOnlyList<BootstrapStream>? Streams { get; init; }
+
     /// <summary>Legge un documento JSON. Null se il testo non e' un oggetto JSON. Campi e nomi sono case-insensitive.</summary>
     public static BootstrapParseResult? Parse(string json)
     {
@@ -112,6 +120,8 @@ public sealed record BootstrapSettings
             ThumbnailJpegQuality = reader.Int(FieldThumbnailQuality, (s, v) => s.ThumbnailJpegQuality = v),
             BatchSize = reader.Int(FieldBatchSize, (s, v) => s.BatchSize = v),
             HtmlReport = reader.Bool(FieldHtmlReport),
+            StreamsEnabled = reader.Bool(FieldStreamsEnabled),
+            Streams = reader.Streams(FieldStreams),
         };
 
         var (headerName, headerValue) = reader.Header(FieldHeaderName, FieldHeaderValue);
@@ -170,6 +180,8 @@ public sealed record BootstrapSettings
             "thumbnailJpegQuality=" + Show(ThumbnailJpegQuality),
             "batchSize=" + Show(BatchSize),
             "htmlReport=" + Show(HtmlReport),
+            "streamsEnabled=" + Show(StreamsEnabled),
+            "streams=" + (Streams is null ? "-" : Streams.Count + " entries"),
         };
         return "BootstrapSettings(" + string.Join(", ", parts) + ")";
     }
@@ -358,6 +370,25 @@ public sealed record BootstrapSettings
             return (null, null);
         }
 
+        /// <summary>Lista di voci: se una voce non e' valida il campo intero viene scartato. Lista vuota e' valida.</summary>
+        public IReadOnlyList<BootstrapStream>? Streams(string field)
+        {
+            if (!_values.TryGetValue(field, out var element))
+            {
+                return null;
+            }
+
+            var streams = ReadStreams(element);
+            if (streams is not null)
+            {
+                _applied.Add(field);
+                return streams;
+            }
+
+            _rejected.Add(field);
+            return null;
+        }
+
         private string? RawText(string field)
         {
             if (!_values.TryGetValue(field, out var element) || element.ValueKind != JsonValueKind.String)
@@ -367,6 +398,81 @@ public sealed record BootstrapSettings
 
             var text = element.GetString()?.Trim();
             return string.IsNullOrEmpty(text) ? null : text;
+        }
+
+        private static IReadOnlyList<BootstrapStream>? ReadStreams(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Array || element.GetArrayLength() > StreamsLimits.MaxEntries)
+            {
+                return null;
+            }
+
+            var list = new List<BootstrapStream>();
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object || !TryReadStream(item, out var stream))
+                {
+                    return null;
+                }
+
+                list.Add(stream);
+            }
+
+            return list;
+        }
+
+        private static bool TryReadStream(JsonElement item, out BootstrapStream stream)
+        {
+            stream = new BootstrapStream(string.Empty, null, string.Empty, true);
+
+            var titleValue = Lookup(item, "title");
+            var urlValue = Lookup(item, "url");
+            var descriptionValue = Lookup(item, "description");
+            var enabledValue = Lookup(item, "enabled");
+
+            if (titleValue is not { ValueKind: JsonValueKind.String } || urlValue is not { ValueKind: JsonValueKind.String })
+            {
+                return false;
+            }
+
+            if (descriptionValue is { } d && d.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+            {
+                return false;
+            }
+
+            if (enabledValue is { } e && e.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return false;
+            }
+
+            var title = titleValue.Value.GetString()?.Trim() ?? string.Empty;
+            var url = urlValue.Value.GetString()?.Trim() ?? string.Empty;
+            var description = descriptionValue is { ValueKind: JsonValueKind.String } dv ? dv.GetString() : null;
+            if (StreamsValidator.ValidateFields(title, description, url).Count > 0)
+            {
+                return false;
+            }
+
+            var enabled = enabledValue is not { ValueKind: JsonValueKind.False };
+            stream = new BootstrapStream(
+                title,
+                string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
+                url,
+                enabled);
+            return true;
+        }
+
+        private static JsonElement? Lookup(JsonElement item, string name)
+        {
+            foreach (var property in item.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return property.Value;
+                }
+            }
+
+            return null;
         }
 
         private static IReadOnlyList<string>? ReadImageTypes(JsonElement element)
