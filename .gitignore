@@ -6,3 +6,7 @@ obj/
 TestResults/
 artifacts/
 .DS_Store
+logs/
+test-images/
+config/
+*.backup-*.md

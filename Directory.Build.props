@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <!-- Target NINA verificato il 2026-10-19: 3.2.0.9001, net8.0-windows7.0 -->
+    <NinaTargetFramework>net8.0-windows7.0</NinaTargetFramework>
+    <NinaPluginPackageVersion>3.2.0.9001</NinaPluginPackageVersion>
+    <NinaMinimumApplicationVersion>3.2.0.9001</NinaMinimumApplicationVersion>
+    <!-- NINA 3.2 carica i plugin da Plugins\3.0.0\<Nome plugin>\ (verificato dal log), NON da Plugins\3.2.0 -->
+    <NinaPluginFolderVersion>3.0.0</NinaPluginFolderVersion>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>
