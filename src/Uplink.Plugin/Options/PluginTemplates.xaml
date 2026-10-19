@@ -1,0 +1,15 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="clr-namespace:MyUniverseUplink.Options"
+                    x:Class="MyUniverseUplink.Options.PluginTemplates">
+    <!--
+        NINA cerca la pagina Opzioni con la chiave "<nome>_Options" (stringa presente in NINA.WPF.Base; origine del nome NON VERIFICATA).
+        Entrambe le varianti sono coperte: nome del plugin e nome dell'assembly.
+    -->
+    <DataTemplate x:Key="My Universe Uplink_Options">
+        <local:UplinkOptionsView />
+    </DataTemplate>
+    <DataTemplate x:Key="MyUniverseUplink_Options">
+        <local:UplinkOptionsView />
+    </DataTemplate>
+</ResourceDictionary>

@@ -4,7 +4,6 @@ using System.Text;
 namespace MyUniverseUplink.Settings;
 
 /// <summary>Cifratura DPAPI (ambito CurrentUser) per token e valori segreti salvati nel profilo NINA.</summary>
-[System.Runtime.Versioning.SupportedOSPlatform("windows")]
 public static class SecretProtector
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("MyUniverseUplink.secret.v1");

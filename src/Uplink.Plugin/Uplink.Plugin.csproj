@@ -9,6 +9,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <RootNamespace>MyUniverseUplink</RootNamespace>
     <AssemblyName>MyUniverseUplink</AssemblyName>
+    <!-- Il plugin e' Windows-only per definizione (TFM net8.0-windows7.0, DPAPI e WPF): CA1416 non aggiunge informazione. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NINA.Plugin" Version="$(NinaPluginPackageVersion)" />
