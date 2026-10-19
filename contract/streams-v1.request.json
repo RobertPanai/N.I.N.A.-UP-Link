@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "requestId": "01JBQ0000000000000000000S1",
+  "device": {
+    "deviceId": "osservatorio-casa",
+    "hostName": "ASTRO-PC",
+    "pluginVersion": "0.3.0",
+    "ninaVersion": "3.2.0.9001",
+    "profileId": "5f2c8a1e-7b3d-4c2a-9e1f-0a1b2c3d4e5f",
+    "profileName": "Osservatorio"
+  },
+  "streamsEnabled": true,
+  "streams": [
+    {
+      "streamId": "cam-cielo",
+      "title": "Cielo sopra l'osservatorio",
+      "description": "Camera all-sky, aggiornata ogni 10 secondi.",
+      "url": "https://astro.scopelink.io/procyon/publiccamera/?tok=EXAMPLE_PUBLIC_TOKEN",
+      "order": 0
+    },
+    {
+      "streamId": "cam-cupola",
+      "title": "Dentro la cupola",
+      "description": "",
+      "url": "https://example.org/live/dome",
+      "order": 1
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "requestId": "01JBQ0000000000000000000S1",
+  "serverTimeUtc": "2025-11-07T09:32:11.512Z",
+  "results": [
+    { "streamId": "cam-cielo", "status": "stored" },
+    { "streamId": "cam-cupola", "status": "rejected", "reason": "host not allowed" }
+  ],
+  "stored": 1,
+  "rejected": 1,
+  "removed": 0,
+  "visible": true
+}
