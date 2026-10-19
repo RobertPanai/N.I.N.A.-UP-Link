@@ -1,5 +1,6 @@
 using System.ComponentModel.Composition;
 using MyUniverseUplink.Core.Activity;
+using MyUniverseUplink.Core.Streams;
 using MyUniverseUplink.Runtime;
 using MyUniverseUplink.Services;
 using MyUniverseUplink.Settings;
@@ -66,7 +67,7 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
             _runtime = new UplinkRuntime(paths, _log, _activity);
             _runtime.Start();
             RunBootstrap();
-            await _runtime.ApplyAsync(_store.Load()).ConfigureAwait(false);
+            await _runtime.ApplyAsync(_store.Load(), StreamsTrigger.Startup).ConfigureAwait(false);
 
             _listener = new ImageSavedListener(_imageSaveMediator, _runtime.HandleImageSaved, _log, _activity);
             _listener.Start();
@@ -123,7 +124,7 @@ public sealed class MyUniverseUplinkPlugin : PluginBase
             RunBootstrap();
             var config = store.Load();
             _activity?.Publish(ActivitySeverity.Info, "profile", "profile changed: " + (string.IsNullOrWhiteSpace(config.ProfileName) ? "(unnamed)" : config.ProfileName));
-            _ = runtime.ApplyAsync(config);
+            _ = runtime.ApplyAsync(config, StreamsTrigger.ProfileChanged);
             SettingsChanged?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)

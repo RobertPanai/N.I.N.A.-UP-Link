@@ -25,6 +25,8 @@ public sealed class ProfileSettingsStore
     private const string KeyExtraHeaderName = "ExtraHeaderName";
     private const string KeyToken = "TokenProtected";
     private const string KeyExtraHeaderValue = "ExtraHeaderValueProtected";
+    private const string KeyStreamsEnabled = "StreamsEnabled";
+    private const string KeyStreams = "Streams";
 
     private readonly PluginOptionsAccessor _options;
     private readonly IProfileService _profileService;
@@ -58,6 +60,11 @@ public sealed class ProfileSettingsStore
             var types = _options.GetValueString(KeyImageTypes, FrameAdmission.DefaultImageType)
                 .Split(',', StringSplitOptions.RemoveEmptyEntries);
 
+            if (!StreamsSettingsJson.TryParse(_options.GetValueString(KeyStreams, "[]"), out var streams))
+            {
+                _log.Warn("saved live streams could not be read; the list is empty");
+            }
+
             return new PluginConfig
             {
                 ProfileId = profile?.Id.ToString() ?? string.Empty,
@@ -75,6 +82,8 @@ public sealed class ProfileSettingsStore
                 ExtraHeaderName = string.IsNullOrWhiteSpace(headerName) ? null : headerName.Trim(),
                 ExtraHeaderValue = headerValue,
                 BearerToken = token,
+                StreamsEnabled = _options.GetValueBoolean(KeyStreamsEnabled, false),
+                Streams = streams,
             };
         }
         catch (Exception ex)
@@ -99,6 +108,8 @@ public sealed class ProfileSettingsStore
         _options.SetValueBoolean(KeyRequireTarget, config.RequireTarget);
         _options.SetValueBoolean(KeyHtmlReport, config.HtmlReport);
         _options.SetValueString(KeyExtraHeaderName, config.ExtraHeaderName?.Trim() ?? string.Empty);
+        _options.SetValueBoolean(KeyStreamsEnabled, config.StreamsEnabled);
+        _options.SetValueString(KeyStreams, StreamsSettingsJson.Serialize(config.Streams));
         Persist();
     }
 

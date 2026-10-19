@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using MyUniverseUplink.Core.Activity;
 using MyUniverseUplink.Core.Pipeline;
 using MyUniverseUplink.Core.Settings;
+using MyUniverseUplink.Core.Streams;
 using MyUniverseUplink.Runtime;
 using MyUniverseUplink.Services;
 using MyUniverseUplink.Settings;
@@ -51,6 +52,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
         _plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
         _dispatcher = Dispatcher.CurrentDispatcher;
         Activity = new ActivityViewModel(plugin.Activity ?? new ActivityFeed(), _dispatcher);
+        Streams = new StreamsEditorViewModel(this);
         _saved = plugin.Store?.Load() ?? new PluginConfig();
         plugin.SettingsChanged += OnSettingsChanged;
 
@@ -76,6 +78,9 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>Feed Activity mostrato nella sezione omonima della pagina.</summary>
     public ActivityViewModel Activity { get; }
+
+    /// <summary>Sezione "Live streams": interruttore, voci e stato.</summary>
+    public StreamsEditorViewModel Streams { get; }
 
     public RelayCommand SaveCommand { get; }
 
@@ -209,6 +214,13 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
+            var streamsProblem = Streams.Problem();
+            if (streamsProblem is not null)
+            {
+                Validation = "Live streams not saved: " + streamsProblem;
+                return;
+            }
+
             var config = BuildFromFields(_saved);
             if (config.Enabled)
             {
@@ -250,7 +262,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
             ReloadSecrets();
             ActionMessage = "Token saved (encrypted for this Windows user).";
             _plugin.Activity?.Publish(ActivitySeverity.Ok, "settings", "token saved (encrypted)");
-            _ = Runtime.ApplyAsync(_saved);
+            _ = Runtime.ApplyAsync(_saved, StreamsTrigger.AuthRestored);
         }
         catch (Exception ex)
         {
@@ -326,6 +338,32 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
     private ProfileSettingsStore Store => _plugin.Store ?? throw new InvalidOperationException("The plugin is not running.");
 
     private UplinkRuntime Runtime => _plugin.Runtime ?? throw new InvalidOperationException("The plugin is not running.");
+
+    /// <summary>Sincronizza ora le dirette: salva solo la sezione Live streams, poi invia con il trigger Manual.</summary>
+    internal void SyncStreamsNow()
+    {
+        try
+        {
+            var problem = Streams.Problem();
+            if (problem is not null)
+            {
+                Streams.Message = "Sync not started: " + problem;
+                return;
+            }
+
+            var config = _saved with { StreamsEnabled = Streams.Enabled, Streams = Streams.ToSettings().Items };
+            Store.SaveSettings(config);
+            _saved = config;
+            Runtime.SyncStreamsNow(config);
+            Streams.Message = "Sync started. The status below shows the result.";
+            _plugin.Activity?.Publish(ActivitySeverity.Info, "streams", "sync now requested from the options page");
+        }
+        catch (Exception ex)
+        {
+            Streams.Message = "Sync not started: " + ex.GetType().Name;
+            _plugin.Log?.Error("options: streams sync now failed", ex);
+        }
+    }
 
     private void SendLast()
     {
@@ -439,6 +477,7 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
         ThumbnailEdge = config.ThumbnailLongEdgePx.ToString(CultureInfo.InvariantCulture);
         ThumbnailQuality = config.ThumbnailJpegQuality.ToString(CultureInfo.InvariantCulture);
         HtmlReport = config.HtmlReport;
+        Streams.Load(config.StreamsEnabled, config.Streams);
         _hasToken = !string.IsNullOrEmpty(config.BearerToken);
         _hasHeaderValue = !string.IsNullOrEmpty(config.ExtraHeaderValue);
         RaisePropertyChanged(nameof(TokenState));
@@ -481,12 +520,15 @@ public sealed class OptionsViewModel : INotifyPropertyChanged, IDisposable
             ThumbnailMode = mode,
             ThumbnailLongEdgePx = ParseInt(ThumbnailEdge, -1),
             ThumbnailJpegQuality = ParseInt(ThumbnailQuality, -1),
+            StreamsEnabled = Streams.Enabled,
+            Streams = Streams.ToSettings().Items,
         };
     }
 
     private void RefreshStatus()
     {
         var runtime = _plugin.Runtime;
+        Streams.Refresh(runtime?.GetStreamsStatus());
         if (runtime is null)
         {
             StatusText = "The plugin is not running.";

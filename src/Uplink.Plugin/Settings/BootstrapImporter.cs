@@ -119,6 +119,8 @@ public sealed class BootstrapImporter
             ImageTypes = s.ImageTypes ?? current.ImageTypes,
             RequireTarget = s.RequireTarget ?? current.RequireTarget,
             HtmlReport = s.HtmlReport ?? current.HtmlReport,
+            StreamsEnabled = s.StreamsEnabled ?? current.StreamsEnabled,
+            Streams = s.Streams is null ? current.Streams : StreamsBootstrap.Merge(current.Streams, s.Streams),
         };
 
         _store.SaveSettings(config);

@@ -37,6 +37,14 @@ public sealed record PluginConfig
 
     public bool HtmlReport { get; init; }
 
+    /// <summary>Interruttore delle dirette sul sito. Indipendente dall'invio dei frame.</summary>
+    public bool StreamsEnabled { get; init; }
+
+    /// <summary>Voci delle dirette, in ordine di lista.</summary>
+    public IReadOnlyList<StreamSetting> Streams { get; init; } = Array.Empty<StreamSetting>();
+
+    public StreamsSettings ToStreamsSettings() => new(StreamsEnabled, Streams);
+
     /// <summary>Segreto: solo in memoria, cifrato su disco con DPAPI.</summary>
     public string? BearerToken { get; init; }
 

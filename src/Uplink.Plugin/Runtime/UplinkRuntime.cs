@@ -9,6 +9,7 @@ using MyUniverseUplink.Core.Pipeline;
 using MyUniverseUplink.Core.Report;
 using MyUniverseUplink.Core.Settings;
 using MyUniverseUplink.Core.Spool;
+using MyUniverseUplink.Core.Streams;
 using MyUniverseUplink.Core.Transport;
 using MyUniverseUplink.Services;
 using NINA.WPF.Base.Interfaces.Mediator;
@@ -51,6 +52,8 @@ public sealed class UplinkRuntime : IDisposable
     private ThumbnailPolicy _policy = new(ThumbnailMode.Never);
     private string? _configProblem;
     private ThumbJob? _last;
+    private StreamsSyncService? _streams;
+    private CancellationTokenSource? _streamsCts;
     private bool _disposed;
 
     public UplinkRuntime(PluginPaths paths, IUplinkLog log, IActivitySink? activity = null)
@@ -81,15 +84,27 @@ public sealed class UplinkRuntime : IDisposable
     {
         _paths.EnsureCreated();
         _spool = new FileSpoolQueue(_paths.Root);
+        _streams = new StreamsSyncService(
+            new FileStreamsStateStore(Path.Combine(_paths.Root, "streams-state.json")),
+            _activity,
+            _retry,
+            _clock);
         _thumbTask = Task.Run(ThumbLoopAsync);
         _reportTimer = new Timer(state => { _ = WriteReportAsync(); }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         _activity?.Publish(ActivitySeverity.Info, "plugin", $"plugin started (pending {_spool.PendingCount})");
     }
 
-    /// <summary>Applica una configurazione: ferma il worker corrente (con drain limitato), poi ne avvia uno nuovo se la configurazione e' valida.</summary>
-    public async Task ApplyAsync(PluginConfig config)
+    /// <summary>Applica una configurazione al worker frame, poi avvia la sincronizzazione delle dirette senza attenderla.</summary>
+    public async Task ApplyAsync(PluginConfig config, StreamsTrigger trigger = StreamsTrigger.SettingsChanged)
     {
         ArgumentNullException.ThrowIfNull(config);
+        await ApplyWorkerAsync(config).ConfigureAwait(false);
+        LaunchStreamsSync(config, trigger);
+    }
+
+    /// <summary>Ferma il worker corrente (con drain limitato), poi ne avvia uno nuovo se la configurazione e' valida.</summary>
+    private async Task ApplyWorkerAsync(PluginConfig config)
+    {
         await _applyGate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -150,6 +165,73 @@ public sealed class UplinkRuntime : IDisposable
         finally
         {
             _applyGate.Release();
+        }
+    }
+
+    /// <summary>Invia ora le dirette con questa configurazione, anche se non e' cambiata. Non attende il risultato.</summary>
+    public void SyncStreamsNow(PluginConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        LaunchStreamsSync(config, StreamsTrigger.Manual);
+    }
+
+    /// <summary>Stato dell'ultima sincronizzazione delle dirette (pagina Opzioni).</summary>
+    public StreamsStatus GetStreamsStatus() => _streams?.GetStatus() ?? StreamsStatus.Initial;
+
+    /// <summary>
+    /// Avvia la sincronizzazione in background: non blocca ApplyAsync ne' NINA. Una nuova richiesta annulla quella in corso.
+    /// Le dirette non dipendono dall'interruttore dell'invio frame, ma servono server, token e device ID validi.
+    /// </summary>
+    private void LaunchStreamsSync(PluginConfig config, StreamsTrigger trigger)
+    {
+        try
+        {
+            var service = _streams;
+            if (service is null)
+            {
+                return;
+            }
+
+            var problem = Validate(config);
+            if (problem is not null)
+            {
+                if (config.StreamsEnabled || trigger == StreamsTrigger.Manual)
+                {
+                    _activity?.Publish(ActivitySeverity.Warn, "streams", "streams not sent: " + problem);
+                }
+
+                return;
+            }
+
+            var cts = new CancellationTokenSource();
+            CancellationTokenSource? previous;
+            lock (_state)
+            {
+                previous = _streamsCts;
+                _streamsCts = cts;
+            }
+
+            previous?.Cancel();
+
+            var request = new StreamsSyncRequest(
+                new UplinkClient(_http, ClientOptions(config)),
+                config.ServerUrl.Trim(),
+                new DeviceInfo
+                {
+                    DeviceId = config.DeviceId.Trim(),
+                    PluginVersion = PluginInfo.PluginVersion,
+                    NinaVersion = PluginInfo.NinaVersion,
+                    ProfileId = config.ProfileId,
+                    ProfileName = config.ProfileName,
+                },
+                config.ToStreamsSettings(),
+                trigger);
+
+            _ = Task.Run(() => service.SyncAsync(request, cts.Token));
+        }
+        catch (Exception ex)
+        {
+            _log.Error("streams: could not start sync (" + ex.GetType().Name + ")");
         }
     }
 
@@ -395,6 +477,14 @@ public sealed class UplinkRuntime : IDisposable
     /// <summary>Teardown: chiude le miniature in corso (5 s), poi ferma il worker con drain (15 s). Totale massimo 20 s.</summary>
     public async Task StopAsync()
     {
+        CancellationTokenSource? streamsCts;
+        lock (_state)
+        {
+            streamsCts = _streamsCts;
+            _streamsCts = null;
+        }
+
+        streamsCts?.Cancel();
         _thumbs.Writer.TryComplete();
         if (_thumbTask is not null)
         {
