@@ -30,10 +30,11 @@ $dataDir = Join-Path $plugins 'MyUniverseUplink'
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 $tok = (Get-Content (Join-Path $dataDir 'dev-token.txt') -Raw).Trim()
 $byp = (Get-Content (Join-Path $root 'config\bypass.txt') -Raw).Trim()
-$bs = [ordered]@{ enabled = $true; serverUrl = 'https://sito-git-feat-uplink-robertpanai96-5335s-projects.vercel.app'; deviceId = 'serversat'; token = $tok; extraHeaderName = 'x-vercel-protection-bypass'; extraHeaderValue = $byp; requireTarget = $false; imageTypes = @('LIGHT'); thumbnailMode = 'Always'; thumbnailLongEdge = 400; thumbnailQuality = 70; batchSize = 25; htmlReport = $true }
+$bs = [ordered]@{ enabled = $true; serverUrl = 'https://sito-git-feat-uplink-robertpanai96-5335s-projects.vercel.app'; deviceId = 'serversat'; token = $tok; extraHeaderName = 'x-vercel-protection-bypass'; extraHeaderValue = $byp; requireTarget = $false; imageTypes = @('LIGHT'); thumbnailMode = 'Always'; thumbnailLongEdge = 400; thumbnailQuality = 70; batchSize = 25; htmlReport = $true; streamsEnabled = $true; streams = @(@{ title = 'Test camera cielo'; description = 'Voce di collaudo'; url = 'https://astro.scopelink.io/procyon/publiccamera/?tok=TEST'; enabled = $true }) }
 [IO.File]::WriteAllText((Join-Path $dataDir 'bootstrap.json'), ($bs | ConvertTo-Json))
 Write-Output 'bootstrap.json scritto'
 
 # 4) riavvio di NINA
 Start-Process -FilePath $ninaExe
 Write-Output 'NINA riavviato'
+# run: 1792421500

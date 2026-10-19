@@ -625,7 +625,7 @@ public sealed class UplinkRuntime : IDisposable
             Enabled = true,
         };
 
-        return new UploadWorker(_spool!, new UplinkClient(_http, ClientOptions(config)), options, _retry, _clock, msg => _log.Info(msg));
+        return new UploadWorker(_spool!, new UplinkClient(_http, ClientOptions(config)), options, _retry, _clock, msg => _log.Info(msg), _activity);
     }
 
     private static UplinkClientOptions ClientOptions(PluginConfig config) => new()
