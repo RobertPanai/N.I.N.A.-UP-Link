@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "serverVersion": "0.1.0",
+  "maxFramesPerBatch": 25,
+  "maxBodyBytes": 4000000,
+  "acceptsThumbnails": true,
+  "maxThumbnailBytes": 200000,
+  "authenticated": true,
+  "deviceId": "osservatorio-casa",
+  "serverTimeUtc": "2025-11-07T09:32:11.512Z"
+}

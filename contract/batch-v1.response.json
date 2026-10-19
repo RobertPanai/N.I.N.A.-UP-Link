@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "batchId": "01JBQ0000000000000000000A1",
+  "serverTimeUtc": "2025-11-07T09:32:11.512Z",
+  "results": [
+    { "frameId": "9f2c1a0e5b7d4c3a9f2c1a0e5b7d4c3a", "status": "stored" },
+    { "frameId": "7d3e88b1c2f04e5a8d6b7c8e9f0a1b2c", "status": "duplicate" },
+    { "frameId": "0a91bb4c3d2e1f0a9b8c7d6e5f4a3b2c", "status": "rejected", "reason": "capturedAtUtc missing" }
+  ],
+  "accepted": 1,
+  "duplicates": 1,
+  "rejected": 1
+}
